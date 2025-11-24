@@ -1,3 +1,5 @@
+from galileo import GalileoLogger
+
 import os
 import random
 import time
@@ -7,26 +9,18 @@ from pathlib import Path
 import pandas as pd
 from dotenv import load_dotenv
 
-from galileo import GalileoLogger
-from galileo.protect import invoke_protect
-from galileo_core.schemas.protect.payload import Payload
-from galileo_core.schemas.protect.execution_status import (
-    ExecutionStatus
-)
-
 # Get the directory where this script is located
 SCRIPT_DIR = Path(__file__).parent.absolute()
 
-# Load .env from the root directory (two levels up from script)
-env_path = SCRIPT_DIR.parent.parent / ".env"
+# Load .env from the root directory (three levels up from script: rag -> getting_started -> engineers -> root)
+env_path = SCRIPT_DIR.parent.parent.parent / ".env"
 load_dotenv(env_path)
 
 MODEL_ALIAS = "gpt-7"
 
-# Get project, logstream, and stage names from environment
+# Get project and logstream names from environment
 project_name = os.getenv("GALILEO_PROJECT")
-log_stream_name = os.getenv("GALILEO_LOG_STREAM_DEV")
-stage_name = os.getenv("GALILEO_PROTECT_STAGE_NAME")
+log_stream_name = os.getenv("GALILEO_LOG_STREAM_SANDBOX")
 
 # Initialize logger
 logger = GalileoLogger(
@@ -34,14 +28,13 @@ logger = GalileoLogger(
     log_stream=log_stream_name
 )
 
-
 session_uid = str(uuid.uuid4())[0:5]
 nanosecond_epoch_external_id = str(time.time_ns())[0:5]
 logger.start_session(name=f"Galileo University Session {session_uid}", external_id=str(nanosecond_epoch_external_id))
 print("Session Started!")
 
-# Use absolute path based on script location
-csv_path = SCRIPT_DIR / "data" / "mock_logstream_data.csv"
+# Use absolute path based on script location (data is in getting_started/data, one level up from rag/)
+csv_path = SCRIPT_DIR.parent / "data" / "mock_logstream_data.csv"
 dataframe = pd.read_csv(csv_path)
 
 print("Data Loaded! Starting Loop...")
@@ -51,38 +44,16 @@ for idx, row in dataframe.iterrows():
     print(row)
     idx =  str(idx+1) + "a"
     context = [row['chunk1'], row['chunk2'], row['chunk3']]
-    
-    # Start trace
+
     trace = logger.start_trace(
         input=row['user_input_query'],
         name=f"User Query {idx}",
+        duration_ns=random.randint(100000, 200000),
         tags=["galileo-getting-started-user-query"],
-        metadata={
-            "last_updated": str(row['last_updated']),
-            "application_id": str(row['application_id'])
-        }
-    )
-    
-    # Run Protect check on user input
-    print(f"Running Protect check on input...")
-    protect_payload = Payload(input=row['user_input_query'])
-    protect_response = invoke_protect(
-        payload=protect_payload,
-        stage_name=stage_name,
-        project_name=project_name
-    )
-    if protect_response.ruleset_results[0]['status'] == ExecutionStatus.triggered:
-        print("🛡️ Galileo Protect has blocked sensitive data from being processed.")
-        continue
-    
-    # Log protect invocation using add_protect_span
-    logger.add_protect_span(
-        payload=protect_payload,
-        response=protect_response,
-        tags=["protect", "pii-detection"]
+        metadata={"last_updated": str(row['last_updated']), "application_id": str(row['application_id'])}
     )
 
-    # Add an retriever span to the trace (only if protect passed)
+    # Add an retriever span to the trace
     logger.add_retriever_span(
         input=row['user_input_query'],
         output=context,
@@ -93,13 +64,14 @@ for idx, row in dataframe.iterrows():
         status_code=200
     )
 
+    proper_input = row['user_input_query'] + f"\n\n Context Documents: {" ,".join(context)}"
+
     # Add an LLM span to the trace
     logger.add_llm_span(
-        input=row['user_input_query'],
+        input=proper_input,
         output=row['ai_response'],
         model=MODEL_ALIAS,
         name=f"LLM Call {idx}",
-        # tools=None,  # Optional list of tools used
         duration_ns=random.randint(1000000, 2000000),
         tags=["galileo-getting-started-llm-call"],  # Optional tags
         num_input_tokens=len((row['user_input_query']+str(context)).split()),

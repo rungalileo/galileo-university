@@ -15,15 +15,15 @@ from dotenv import load_dotenv
 # Get the directory where this script is located
 SCRIPT_DIR = Path(__file__).parent.absolute()
 
-# Load .env from the root directory (two levels up from script)
-env_path = SCRIPT_DIR.parent.parent / ".env"
+# Load .env from the root directory (three levels up from script: rag -> getting_started -> engineers -> root)
+env_path = SCRIPT_DIR.parent.parent.parent / ".env"
 load_dotenv(env_path)
 
 # Get project, logstreams, and stage names from environment
 project_name = os.getenv("GALILEO_PROJECT")
 log_stream_sandbox = os.getenv("GALILEO_LOG_STREAM_SANDBOX")
 log_stream_dev = os.getenv("GALILEO_LOG_STREAM_DEV")
-stage_name = os.getenv("GALILEO_PROTECT_STAGE_NAME", "Galileo Getting Started Protect PII Stage")
+stage_name = os.getenv("GALILEO_PROTECT_STAGE_NAME")
 
 # Initialize logger (using sandbox as default)
 logger_sandbox = GalileoLogger(
@@ -40,7 +40,9 @@ logger_dev = GalileoLogger(
 metrics_to_enable = [
     GalileoScorers.context_adherence, # RAG
     GalileoScorers.chunk_attribution_utilization, # RAG
-    GalileoScorers.tool_selection_quality, # Agent
+    GalileoScorers.context_relevance, # RAG
+    GalileoScorers.completeness, # RAG
+    GalileoScorers.correctness # RAG
 ]
 
 # Enable metrics for sandbox logstream
@@ -51,7 +53,7 @@ if log_stream_sandbox:
         project_name=project_name,
         metrics=metrics_to_enable
     )
-    print(f"✅ Metrics enabled for sandbox logstream: context_adherence, tool_selection_quality, chunk_attribution_utilization")
+    print(f"✅ Metrics enabled for sandbox logstream: context_adherence, chunk_attribution_utilization, context_relevance, completeness, correctness")
 
 # Enable metrics for dev logstream
 if log_stream_dev:
