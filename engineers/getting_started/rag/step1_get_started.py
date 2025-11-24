@@ -36,13 +36,30 @@ logger_dev = GalileoLogger(
     log_stream=log_stream_dev
 )
 
+logger_dev_agent = GalileoLogger(
+    project=project_name,
+    log_stream=log_stream_dev + "-agent"
+)
+
 # Enable metrics for both logstreams: context adherence, tool selection quality, and chunk attribution utilization
 metrics_to_enable = [
     GalileoScorers.context_adherence, # RAG
     GalileoScorers.chunk_attribution_utilization, # RAG
     GalileoScorers.context_relevance, # RAG
-    GalileoScorers.completeness, # RAG
     GalileoScorers.correctness # RAG
+]
+
+metrics_to_enable_agent = [
+    GalileoScorers.context_adherence, # RAG
+    GalileoScorers.context_relevance, # RAG
+    GalileoScorers.correctness, # RAG
+    GalileoScorers.tool_error_rate,
+    GalileoScorers.tool_selection_quality,
+    GalileoScorers.action_advancement,
+    GalileoScorers.action_completion,
+    GalileoScorers.agent_efficiency,
+    GalileoScorers.agent_flow,
+    GalileoScorers.agentic_workflow_success
 ]
 
 # Enable metrics for sandbox logstream
@@ -64,6 +81,15 @@ if log_stream_dev:
         metrics=metrics_to_enable
     )
     print(f"✅ Metrics enabled for dev logstream: context_adherence, tool_selection_quality, chunk_attribution_utilization")
+
+if log_stream_dev + "-agent":
+    print(f"Enabling metrics for logstream '{log_stream_dev + "-agent"}' (dev-agent) in project '{project_name}'...")
+    local_metrics_dev_agent = enable_metrics(
+        log_stream_name=log_stream_dev + "-agent",
+        project_name=project_name,
+        metrics=metrics_to_enable_agent
+    )
+    print(f"✅ Metrics enabled for dev-agent logstream: context_adherence, chunk_attribution_utilization, context_relevance, completeness, correctness")
 
 ########################################################
 # Create Protect Stage for PII detection

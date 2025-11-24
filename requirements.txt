@@ -1,3 +1,6 @@
 galileo
 pandas
-dotenv
+python-dotenv
+langchain
+langchain-openai
+langgraph

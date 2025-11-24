@@ -7,7 +7,8 @@ from dotenv import load_dotenv
 from galileo.experiments import run_experiment, get_experiment
 from galileo.datasets import get_dataset
 from galileo.schema.metrics import GalileoScorers
-from galileo.prompts import create_prompt
+from galileo.prompts import create_prompt, get_prompt
+from galileo.projects import get_project
 from galileo import Message, MessageRole
 
 # Get the directory where this script is located
@@ -46,23 +47,35 @@ except Exception as e:
 # prompt template with your LLM for each input in the dataset
 ########################################################
 
-print("\nCreating prompt template...")
-# Note: In production, you'd include context from your RAG retrieval
-# For this example, we use the input directly. Context is stored in metadata.
-prompt_template = create_prompt(
-    name="rag-application-prompt-abc",
-    template=[
-        Message(
-            role=MessageRole.system,
-            content="You are a helpful assistant. Answer the user's question accurately and concisely based on the context provided. Answer in 30 words or less."
-        ),
-        Message(
-            role=MessageRole.user,
-            content="{{input}}"
+prompt_name = "rag-application-prompt"
+print(f"\nFetching prompt '{prompt_name}'...")
+
+try:
+    prompt_template = get_prompt(name=prompt_name, project_name=project_name)
+
+    if prompt_template is None:
+        print("⚠️ Prompt not found, creating a new one...")
+        prompt_template = create_prompt(
+            name=prompt_name,
+            project_name=project_name,
+            template=[
+                Message(
+                    role=MessageRole.system,
+                    content="You are a helpful assistant. Answer the user's question accurately and concisely based on the context provided. Answer in 30 words or less."
+                ),
+                Message(
+                    role=MessageRole.user,
+                    content="{{input}}"
+                )
+            ]
         )
-    ]
-)
-print("✅ Prompt template created")
+        print("✅ Prompt created and saved in Galileo.")
+    else:
+        print("✅ Prompt found in Galileo – reusing existing template.")
+
+except Exception as e:
+    print(f"❌ Error getting prompt: {e}")
+    exit(1)
 
 ########################################################
 # Step 4: Run the experiment with metrics
@@ -77,7 +90,6 @@ metrics = [
     GalileoScorers.ground_truth_adherence,  
     GalileoScorers.context_adherence, 
     GalileoScorers.context_relevance,
-    GalileoScorers.completeness,
     GalileoScorers.correctness
 ]
 
