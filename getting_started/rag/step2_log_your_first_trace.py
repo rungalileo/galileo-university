@@ -21,6 +21,7 @@ MODEL_ALIAS = "gpt-7"
 # Get project and logstream names from environment
 project_name = os.getenv("GALILEO_PROJECT")
 log_stream_name = os.getenv("GALILEO_LOG_STREAM_SANDBOX")
+stage_name = os.getenv("GALILEO_PROTECT_STAGE_NAME")
 
 # Initialize logger
 logger = GalileoLogger(
@@ -30,8 +31,13 @@ logger = GalileoLogger(
 
 session_uid = str(uuid.uuid4())[0:5]
 nanosecond_epoch_external_id = str(time.time_ns())[0:5]
-logger.start_session(name=f"Galileo University Session {session_uid}", external_id=str(nanosecond_epoch_external_id))
-print("Session Started!")
+
+logger.start_session(
+    name=f"Galileo University Session {session_uid}",
+    external_id=uuid.uuid4().hex,  # guaranteed unique
+)
+
+print(f"Session Started with id {logger.session_id}!")
 
 # Use absolute path based on script location (data is in getting_started/data, one level up from rag/)
 csv_path = SCRIPT_DIR.parent / "data" / "mock_logstream_data.csv"
@@ -41,7 +47,7 @@ print("Data Loaded! Starting Loop...")
 
 for idx, row in dataframe.iterrows():
     print(f"Processing row {idx}...")
-    print(row)
+#    print(row)
     idx =  str(idx+1) + "a"
     context = [row['chunk1'], row['chunk2'], row['chunk3']]
 
@@ -53,6 +59,8 @@ for idx, row in dataframe.iterrows():
         metadata={"last_updated": str(row['last_updated']), "application_id": str(row['application_id'])}
     )
 
+    print(f"Trace started with id {trace.id}!")
+    print(f"Trace input: {trace.input}")
     # Add an retriever span to the trace
     logger.add_retriever_span(
         input=row['user_input_query'],
@@ -64,7 +72,13 @@ for idx, row in dataframe.iterrows():
         status_code=200
     )
 
-    proper_input = row['user_input_query'] + f"\n\n Context Documents: {" ,".join(context)}"
+
+    proper_input = (
+    row["user_input_query"]
+    + "\n\nContext Documents: "
+    + ", ".join(context)
+    )
+
 
     # Add an LLM span to the trace
     logger.add_llm_span(

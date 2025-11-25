@@ -46,8 +46,8 @@ logger = GalileoLogger(
 
 session_uid = str(uuid.uuid4())[0:5]
 nanosecond_epoch_external_id = str(time.time_ns())[0:5]
-logger.start_session(name=f"Galileo University Session {session_uid}", external_id=str(nanosecond_epoch_external_id))
-print("Session Started!")
+logger.start_session(name=f"Galileo University Session {nanosecond_epoch_external_id[-5:]}", external_id=str(session_uid[-5:]))
+print("Session Started with id {logger.session_id}!")
 
 # Use absolute path based on script location
 # Use absolute path based on script location (data is in getting_started/data, one level up from rag/)

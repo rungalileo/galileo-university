@@ -46,12 +46,11 @@ metrics_to_enable = [
     GalileoScorers.context_adherence, # RAG
     GalileoScorers.chunk_attribution_utilization, # RAG
     GalileoScorers.context_relevance, # RAG
-    GalileoScorers.correctness # RAG
+    GalileoScorers.correctness
 ]
 
 metrics_to_enable_agent = [
     GalileoScorers.context_adherence, # RAG
-    GalileoScorers.context_relevance, # RAG
     GalileoScorers.correctness, # RAG
     GalileoScorers.tool_error_rate,
     GalileoScorers.tool_selection_quality,
