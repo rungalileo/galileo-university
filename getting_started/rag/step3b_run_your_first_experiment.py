@@ -25,7 +25,20 @@ project_name = os.getenv("GALILEO_PROJECT")
 # Step 1: Get the dataset (created via create_dataset_from_csv.py)
 ########################################################
 
-dataset_name = "ds-hallucination-ci-cd-check-context-adherence"
+# Read dataset name from file created by step3a
+dataset_name_file = SCRIPT_DIR / "dataset_name.txt"
+try:
+    with open(dataset_name_file, "r") as f:
+        dataset_name = f.read().strip()
+    print(f"Read dataset name from {dataset_name_file}: '{dataset_name}'")
+except FileNotFoundError:
+    print(f"❌ Error: Dataset name file not found: {dataset_name_file}")
+    print("   Please run step3a_create_dataset_from_csv.py first to create the dataset.")
+    exit(1)
+except Exception as e:
+    print(f"❌ Error reading dataset name file: {e}")
+    exit(1)
+
 print(f"Getting dataset '{dataset_name}'...")
 
 try:

@@ -269,10 +269,10 @@ Use tools when appropriate to provide accurate and helpful responses."""
     # Create config with GalileoCallback for observability
     # GalileoCallback needs project and log_stream to log traces
     galileo_logger = GalileoLogger(project=project_name, log_stream=log_stream_name)
-    nanosecond_epoch_external_id = str(time.time_ns())[0:5]
-    galileo_logger.start_session(name=f"Agentic Workflows Session {session_id[-4]}", external_id=str(nanosecond_epoch_external_id))
+    nanosecond_epoch_external_id = str(time.time_ns())[-5]
+    galileo_logger.start_session(name=f"Agentic Workflows Session {nanosecond_epoch_external_id}", external_id=str(session_id[-5:]))
     galileo_callback = GalileoCallback(galileo_logger=galileo_logger,
-                                       start_new_trace=True)
+                                       start_new_trace=False)
     
     config = {
         "configurable": {"thread_id": session_id},
@@ -297,23 +297,39 @@ Use tools when appropriate to provide accurate and helpful responses."""
         print(f"\n[Query {i}] {query}")
         print("-" * 60)
         
+        # Start a new trace with the query as input (not the full state)
+        trace = galileo_logger.start_trace(input=query)
+        
         # Create initial state
         initial_state = {
-            "messages": [HumanMessage(content=query)],
-            "protect_triggered": False
+            "messages": [HumanMessage(content=query)]
         }
         
         # Invoke the graph
         try:
             result = graph.invoke(initial_state, config)
             
-            # Get the last message
+            # Get the last AIMessage (skip ToolMessages) - extract just the content
+            response_content = ""
             if result["messages"]:
-                last_message = result["messages"][-1]
-                if isinstance(last_message, AIMessage):
-                    print(f"Response: {last_message.content}")
+                # Find the last AIMessage in the messages array
+                for msg in reversed(result["messages"]):
+                    if isinstance(msg, AIMessage):
+                        response_content = msg.content
+                        print(f"Response: {response_content}")
+                        break
                 else:
-                    print(f"Response: {last_message}")
+                    # If no AIMessage found, use the last message's string representation
+                    last_message = result["messages"][-1]
+                    response_content = str(last_message)
+                    print(f"Response: {response_content}")
+            
+            # Conclude the trace with just the content string (not the full JSON)
+            # This should override whatever the callback may have logged
+            galileo_logger.conclude(output=response_content, conclude_all=False)
+            
+            # Flush to ensure the output is persisted
+            galileo_logger.flush()
             
             # Check if Protect was triggered
             if result.get("protect_triggered", False):
@@ -323,6 +339,8 @@ Use tools when appropriate to provide accurate and helpful responses."""
             print(f"❌ Error: {e}")
             import traceback
             traceback.print_exc()
+            # Conclude trace with error
+            galileo_logger.conclude(output=f"Error: {str(e)}", conclude_all=False)
         
         # Small delay between queries
         time.sleep(1)

@@ -44,3 +44,5 @@ wheels/
 .DS_Store
 Thumbs.db
 
+# Generated files
+getting_started/rag/dataset_name.txt

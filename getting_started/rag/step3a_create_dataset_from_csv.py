@@ -1,5 +1,6 @@
 import os
 import json
+import uuid
 from pathlib import Path
 
 import pandas as pd
@@ -57,7 +58,7 @@ for idx, row in dataframe.iterrows():
     dataset_content.append(dataset_entry)
 
 # Create the dataset in Galileo
-dataset_name = "ds-hallucination-ci-cd-check-context-adherence"
+dataset_name = f"ds-hallucination-check-{uuid.uuid4().hex[:4]}"
 print(f"\nCreating dataset '{dataset_name}' in project '{project_name}'...")
 print(f"Dataset will contain {len(dataset_content)} entries")
 
@@ -71,4 +72,10 @@ print(f"✅ Dataset created successfully!")
 print(f"Dataset ID: {dataset.id}")
 print(f"Dataset Name: {dataset.name}")
 print(f"\nYou can now use this dataset in experiments!")
+
+# Write dataset name to file
+dataset_name_file = SCRIPT_DIR / "dataset_name.txt"
+with open(dataset_name_file, "w") as f:
+    f.write(dataset.name)
+print(f"Dataset name written to: {dataset_name_file}")
 
