@@ -38,8 +38,8 @@ from galileo import GalileoLogger
 # Get the directory where this script is located
 SCRIPT_DIR = Path(__file__).parent.absolute()
 
-# Load .env from the root directory (three levels up from script: agentic-workflows -> getting_started -> engineers -> root)
-env_path = SCRIPT_DIR.parent.parent.parent / ".env"
+# Load .env from the root directory (three levels up from script: agentic-workflows -> getting_started -> root)
+env_path = SCRIPT_DIR.parent.parent / ".env"
 load_dotenv(env_path)
 
 # Get project and stage names from environment
