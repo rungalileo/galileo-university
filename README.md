@@ -4,11 +4,31 @@ This repository demonstrates how to log to Galileo using the Python SDK. We also
 
 ## Quick Start
 
-Install dependencies in a virtual environment using your favorite dependency manager:
+**Requirements:** Python 3.12 or greater must be installed.
+
+### Automated Setup (Recommended)
+
+Run the setup script to automatically create a virtual environment, install dependencies, and configure your environment:
 
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+./setup.sh
+```
+
+After running the script, activate the virtual environment:
+
+```bash
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+```
+
+Then edit the `.env` file with your Galileo credentials (the script creates it from a template if it doesn't exist).
+
+### Manual Setup (Alternative)
+
+If you prefer to set up manually:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
