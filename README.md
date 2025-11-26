@@ -8,6 +8,8 @@ This repository demonstrates how to log to Galileo using the Python SDK. We also
 
 ### Automated Setup (Recommended)
 
+There is an automated setup script that supports macOS, Linux, and Windows on WSL terminal. If you are using Windows without WSL, follow to the manual setup instructions below.
+
 Run the setup script to automatically create a virtual environment, install dependencies, and configure your environment:
 
 ```bash
