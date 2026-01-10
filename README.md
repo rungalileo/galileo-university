@@ -41,9 +41,17 @@ GALILEO_PROJECT=your_project_name
 GALILEO_LOG_STREAM_SANDBOX=sandbox
 GALILEO_LOG_STREAM_DEV=dev
 GALILEO_PROTECT_STAGE_NAME=Galileo Getting Started Protect PII Stage
+
+(optional)
+OPENAI_API_KEY=key
+other model api keys as needed
 ```
 
 ## Tutorials
+
+
+### Smoke Testing & Logging Your First Trace and Experiment
+Steps 1-4 can be used as a Galileo environment smoke test and/or to quickly populate your first logstream and experiment.
 
 Go into the `getting_started/rag/` folder. This contains steps 1-4 of a typical engineering workflow using Galileo:
 
