@@ -1,6 +1,6 @@
 from galileo import GalileoLogger
 from galileo.log_streams import enable_metrics
-from galileo.schema.metrics import GalileoScorers
+from galileo.schema.metrics import GalileoMetrics
 from galileo.stages import create_protect_stage, get_protect_stage
 from galileo_core.schemas.protect.action import OverrideAction
 from galileo_core.schemas.protect.rule import Rule, RuleOperator
@@ -43,22 +43,22 @@ logger_dev_agent = GalileoLogger(
 
 # Enable metrics for both logstreams: context adherence, tool selection quality, and chunk attribution utilization
 metrics_to_enable = [
-    GalileoScorers.context_adherence, # RAG
-    GalileoScorers.chunk_attribution_utilization, # RAG
-    GalileoScorers.context_relevance, # RAG
-    GalileoScorers.correctness
+    GalileoMetrics.context_adherence, # RAG
+    GalileoMetrics.chunk_attribution_utilization, # RAG
+    GalileoMetrics.context_relevance, # RAG
+    GalileoMetrics.correctness
 ]
 
 metrics_to_enable_agent = [
-    GalileoScorers.context_adherence, # RAG
-    GalileoScorers.correctness, # RAG
-    GalileoScorers.tool_error_rate,
-    GalileoScorers.tool_selection_quality,
-    GalileoScorers.action_advancement,
-    GalileoScorers.action_completion,
-    GalileoScorers.agent_efficiency,
-    GalileoScorers.agent_flow,
-    GalileoScorers.agentic_workflow_success
+    GalileoMetrics.context_adherence, # RAG
+    GalileoMetrics.correctness, # RAG
+    GalileoMetrics.tool_error_rate,
+    GalileoMetrics.tool_selection_quality,
+    GalileoMetrics.action_advancement,
+    GalileoMetrics.action_completion,
+    GalileoMetrics.agent_efficiency,
+    GalileoMetrics.agent_flow,
+    GalileoMetrics.agentic_workflow_success
 ]
 
 # Enable metrics for sandbox logstream
@@ -96,7 +96,7 @@ if log_stream_dev + "-agent":
 
 print(f"\nCreating Protect stage '{stage_name}'...")
 rule = Rule(
-    metric=GalileoScorers.input_pii,
+    metric=GalileoMetrics.input_pii,
     operator=RuleOperator.any,
     target_value=["ssn", "address", "email", "phone number"]
 )
