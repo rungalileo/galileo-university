@@ -80,16 +80,19 @@ Stay organized among teams by storing prompts in our [prompt storage](https://v2
 
 **Step 4**: Use Protect to block bad input PII queries in real time.
 
-**Step 6**: End-to-end metric-calculation smoke test. It is self-contained: it (1) enables the metrics on the `dev` log stream (context adherence, context relevance, correctness), (2) submits a small batch of RAG traces tagged with a unique run id, (3) polls the traces search API (`POST /projects/{project_id}/traces/search`) until Galileo has scored every enabled metric on those traces, and (4) verifies they appear within a configurable timeout — printing the scores and exiting non-zero if they don't. This lets the smoke test detect metric-calculation failures without manual log inspection, suitable for lightweight monitoring.
+**Step 6**: End-to-end metric-calculation smoke test. It is self-contained: it (1) enables a chosen metric family on the `dev` log stream, (2) submits a small batch of RAG traces tagged with a unique run id, (3) polls the traces search API (`POST /projects/{project_id}/traces/search`) until Galileo has scored every enabled metric on those traces, and (4) verifies they appear within a configurable timeout — printing the scores and exiting non-zero if they don't. This lets the smoke test detect metric-calculation failures without manual log inspection, suitable for lightweight monitoring.
 
-Note on version differences: how metric values are keyed on a trace changed across Galileo versions. Newer versions key LLM-judge metrics by the metric's *scorer id* (e.g. `<scorer_id>_multijudge_average`), while older versions key them by *name* (e.g. `context_adherence`). The script is version-tolerant: it tries name-based lookup first and only fetches scorer ids if that fails (so older deployments skip the extra call). Run with `GALILEO_SMOKE_TEST_DEBUG=1` to print the exact metric-column keys and resolved scorer ids for your version.
+Metric families: set `GALILEO_SMOKE_TEST_METRICS` to `llm` (LLM-as-judge: context adherence, context relevance, correctness), `luna` (Luna/SLM: context adherence, context relevance, completeness), or `both` to verify both families in one run. `correctness` has no Luna variant, so `completeness` stands in for the Luna set.
 
-Enabling metrics replaces the log stream's scorer configuration with exactly the three listed above, so point this at a dedicated smoke-test log stream if you don't want to change an existing stream's metrics.
+Note on version differences: how metric values are keyed on a trace changed across Galileo versions and by family. Newer versions key by the metric's *scorer id* (e.g. `<scorer_id>_multijudge_average` for LLM-judge, `<scorer_id>_average` for Luna), while older versions key by *name* (e.g. `context_adherence`). The script is version-tolerant: it tries scorer ids first (unique per variant, so an LLM-judge metric never reads its Luna sibling's value) and falls back to a collision-guarded name lookup. Run with `GALILEO_SMOKE_TEST_DEBUG=1` to print the exact metric-column keys and resolved scorer ids for your version.
+
+Enabling metrics replaces the log stream's scorer configuration with exactly the family you select, so point this at a dedicated smoke-test log stream if you don't want to change an existing stream's metrics.
 
 Configuration (all optional, via `.env` — see `.env.template`):
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `GALILEO_SMOKE_TEST_METRICS` | `llm` | Metric family to verify: `llm`, `luna`, or `both` |
 | `GALILEO_METRIC_TIMEOUT_SECONDS` | `180` | Max seconds to wait for metrics before failing |
 | `GALILEO_METRIC_POLL_INTERVAL_SECONDS` | `10` | Seconds between polls |
 | `GALILEO_SMOKE_TEST_NUM_TRACES` | `3` | Number of test traces to submit |
