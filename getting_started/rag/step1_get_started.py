@@ -57,8 +57,7 @@ metrics_to_enable_agent = [
     GalileoMetrics.action_advancement,
     GalileoMetrics.action_completion,
     GalileoMetrics.agent_efficiency,
-    GalileoMetrics.agent_flow,
-    GalileoMetrics.agentic_workflow_success
+    GalileoMetrics.agent_flow
 ]
 
 # Enable metrics for sandbox logstream

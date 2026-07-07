@@ -5,8 +5,8 @@ backoff==2.2.1
 certifi==2026.1.4
 charset-normalizer==3.4.4
 distro==1.9.0
-galileo==1.45.0
-galileo-core==3.82.1
+galileo==2.3.0
+galileo-core==4.3.0
 h11==0.16.0
 httpcore==1.0.9
 httpx==0.28.1
@@ -32,7 +32,7 @@ pydantic==2.12.5
 pydantic-partial==0.10.1
 pydantic-settings==2.12.0
 pydantic_core==2.41.5
-PyJWT==2.10.1
+PyJWT==2.13.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.1
 pytz==2025.2

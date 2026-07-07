@@ -99,7 +99,10 @@ if METRIC_SET not in _METRIC_SETS:
     print(f"⚠️  GALILEO_SMOKE_TEST_METRICS='{METRIC_SET}' unknown; using 'llm'.")
     METRIC_SET = "llm"
 METRICS = _METRIC_SETS[METRIC_SET]
-EXPECTED_METRICS = [metric.value for metric in METRICS]
+# Use the enum member name (stable snake identifier that matches the on-trace
+# metric keys), not .value - on some SDK versions .value is a display label
+# like "Context Adherence (SLM)", which won't match the trace keys.
+EXPECTED_METRICS = [metric.name for metric in METRICS]
 
 MODEL_ALIAS = "gpt-5"
 
