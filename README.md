@@ -62,6 +62,7 @@ Go into the `getting_started/rag/` folder. This contains steps 1-4 of a typical 
 | `step3a_create_dataset_from_csv.py` | Create dataset for experiments |
 | `step3b_run_your_first_experiment.py` | Run experiment with CI/CD thresholds |
 | `step4_run_with_protect.py` | Log traces with Protect enforcement |
+| `step6_check_scores.py` | End-to-end metric-calculation smoke test: submit traces, poll for metrics, fail on timeout |
 
 **Step 1**: Set up your Protect Stage and Enable Metrics. Metrics enabled:
 - [Context Adherence](https://v2docs.galileo.ai/)
@@ -78,6 +79,22 @@ Stay organized among teams by storing prompts in our [prompt storage](https://v2
 **Step 3b**: Demonstrates how a ground truth dataset can be applied in your CI/CD pipeline to prevent bad AI code from reaching production.
 
 **Step 4**: Use Protect to block bad input PII queries in real time.
+
+**Step 6**: End-to-end metric-calculation smoke test. It is self-contained: it (1) enables the metrics on the `dev` log stream (context adherence, context relevance, correctness), (2) submits a small batch of RAG traces tagged with a unique run id, (3) polls the traces search API (`POST /projects/{project_id}/traces/search`) until Galileo has scored every enabled metric on those traces, and (4) verifies they appear within a configurable timeout — printing the scores and exiting non-zero if they don't. This lets the smoke test detect metric-calculation failures without manual log inspection, suitable for lightweight monitoring.
+
+Note on version differences: how metric values are keyed on a trace changed across Galileo versions. Newer versions key LLM-judge metrics by the metric's *scorer id* (e.g. `<scorer_id>_multijudge_average`), while older versions key them by *name* (e.g. `context_adherence`). The script is version-tolerant: it tries name-based lookup first and only fetches scorer ids if that fails (so older deployments skip the extra call). Run with `GALILEO_SMOKE_TEST_DEBUG=1` to print the exact metric-column keys and resolved scorer ids for your version.
+
+Enabling metrics replaces the log stream's scorer configuration with exactly the three listed above, so point this at a dedicated smoke-test log stream if you don't want to change an existing stream's metrics.
+
+Configuration (all optional, via `.env` — see `.env.template`):
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `GALILEO_METRIC_TIMEOUT_SECONDS` | `180` | Max seconds to wait for metrics before failing |
+| `GALILEO_METRIC_POLL_INTERVAL_SECONDS` | `10` | Seconds between polls |
+| `GALILEO_SMOKE_TEST_NUM_TRACES` | `3` | Number of test traces to submit |
+| `GALILEO_METRIC_MIN_SCORED_TRACES` | = submitted | Min scored traces required to pass |
+| `GALILEO_SMOKE_TEST_DEBUG` | unset | Set to `1` to print how this Galileo version keys metric columns (scorer id vs. name) |
 
 **Agentic workflows** (optional): See `getting_started/agentic-workflows/` for agentic workflow examples. Step 5 logs an agent workflow with LangGraph. Check out our agent graph to quickly understand a workflow.
 
