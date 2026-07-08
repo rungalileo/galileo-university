@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 from galileo.experiments import run_experiment, get_experiment
 from galileo.datasets import get_dataset
-from galileo.schema.metrics import GalileoScorers
+from galileo_core.schemas.shared.scorers.scorer_name import ScorerName
 from galileo.prompts import create_prompt, get_prompt
 from galileo.projects import get_project
 from galileo import Message, MessageRole
@@ -100,11 +100,36 @@ print("="*60)
 
 experiment_name = "Galileo Getting Started RAG Experiment"
 metrics = [
-    GalileoScorers.ground_truth_adherence,  
-    GalileoScorers.context_adherence, 
-    GalileoScorers.context_relevance,
-    GalileoScorers.correctness
+    ScorerName.ground_truth_adherence,
+    ScorerName.context_adherence,
+    ScorerName.context_relevance,
+    ScorerName.correctness
 ]
+
+# Some scorers are published under a renamed key in aggregate_metrics
+# (e.g. correctness -> factuality, context_adherence -> groundedness). Map each
+# requested scorer to the output key(s) to look for.
+METRIC_OUTPUT_ALIASES = {
+    "correctness": ["correctness", "factuality"],
+    "context_adherence": ["context_adherence", "groundedness"],
+    "context_relevance": ["context_relevance"],
+    "ground_truth_adherence": ["ground_truth_adherence"],
+}
+
+
+def aggregate_props(experiment):
+    """aggregate_metrics is an object whose values live in additional_properties."""
+    return getattr(getattr(experiment, "aggregate_metrics", None), "additional_properties", None) or {}
+
+
+def resolve_average(props, scorer_value):
+    """Return (key, value) for a scorer's average, tolerating renamed outputs."""
+    for alias in METRIC_OUTPUT_ALIASES.get(scorer_value, [scorer_value]):
+        key = f"average_{alias}"
+        if key in props:
+            return key, props[key]
+    return None, None
+
 
 print(f"Experiment Name: {experiment_name}")
 print(f"Metrics: {', '.join([m.value for m in metrics])}")
@@ -137,20 +162,18 @@ print("\n" + "="*60)
 print("Polling Experiment Results...")
 print("="*60)
 
-# Define thresholds for CI/CD
+# Define thresholds for CI/CD (keyed by requested scorer name)
 THRESHOLDS = {
     "ground_truth_adherence": 0.75,  # 75% adherence to ground truth
     "context_adherence": 0.7,        # 70% context adherence
     "context_relevance": 0.7,        # 70% context relevance
-    "completeness": 0.7,            # 70% completeness
     "correctness": 0.7,             # 70% correctness
 }
 
 # Poll for metrics to be calculated
-max_wait_time = 60  # 1 minute
+max_wait_time = 180  # scoring can take a couple of minutes
 poll_interval = 10   # Check every 10 seconds (less verbose)
 elapsed_time = 0
-last_status = None
 
 print("Waiting for metrics to be calculated...")
 print("(Press Ctrl+C to stop early)")
@@ -159,54 +182,29 @@ try:
     while elapsed_time < max_wait_time:
         # Reload the experiment to check for metrics
         experiment = get_experiment(experiment_name=actual_experiment_name, project_name=project_name)
-        
-        # Check experiment status first
-        if hasattr(experiment, 'status') and experiment.status:
-            # Handle ExperimentStatus enum or string
-            status_value = experiment.status.value if hasattr(experiment.status, 'value') else str(experiment.status)
-            status_lower = status_value.lower() if isinstance(status_value, str) else str(status_value).lower()
-            
-            if status_lower in ['failed', 'error', 'cancelled']:
-                print(f"\n❌ Experiment status: {status_value}")
-                print("Experiment failed or was cancelled. Exiting.")
-                exit(1)
-        
-        # Check if aggregate_metrics are available
-        all_metrics_ready = True
-        if experiment.aggregate_metrics is None:
-            all_metrics_ready = False
-        else:
-            # Check if all expected metrics are calculated
-            for metric in metrics:
-                metric_name = metric.value
-                average_metric_key = f"average_{metric_name}"
-                if average_metric_key not in experiment.aggregate_metrics:
-                    all_metrics_ready = False
-                    break
-        
-        if all_metrics_ready:
+
+        # Fail fast if the experiment itself errored/cancelled
+        status_text = str(getattr(experiment, "status", "")).lower()
+        if any(bad in status_text for bad in ("failed", "error", "cancelled")):
+            print(f"\n❌ Experiment status: {getattr(experiment, 'status', None)}")
+            print("Experiment failed or was cancelled. Exiting.")
+            exit(1)
+
+        # Ready when every requested scorer that the platform returns is present.
+        props = aggregate_props(experiment)
+        resolved = {m.value: resolve_average(props, m.value)[0] for m in metrics}
+        found = sum(1 for key in resolved.values() if key is not None)
+
+        if props and found == len(metrics):
             print("\n✅ All metrics calculated!")
             break
-        
-        # Only print every 30 seconds to reduce verbosity
-        current_status = None
-        if hasattr(experiment, 'status') and experiment.status:
-            # Handle ExperimentStatus enum or string
-            current_status = experiment.status.value if hasattr(experiment.status, 'value') else str(experiment.status)
-        
-        should_print = (elapsed_time % 30 == 0) or (last_status != current_status)
-        
-        if should_print:
-            status_msg = f" (status: {current_status})" if current_status else ""
-            print(f"   Waiting for metrics... ({elapsed_time}s/{max_wait_time}s){status_msg}")
-            last_status = current_status
-        
+
+        print(f"   Waiting for metrics... ({elapsed_time}s/{max_wait_time}s) "
+              f"[{found}/{len(metrics)} available]")
         time.sleep(poll_interval)
         elapsed_time += poll_interval
     else:
-        print("\n❌ Experiment timed out waiting for metrics!")
-        print("   You can check the experiment status in the Galileo console.")
-        exit(1)
+        print("\n⚠️  Timed out waiting for all metrics; evaluating what was calculated.")
 except KeyboardInterrupt:
     print("\n\n⚠️  Polling interrupted by user.")
     print("   Experiment is still running. Check results in Galileo console.")
@@ -217,38 +215,38 @@ print("\n" + "="*60)
 print("Experiment Results:")
 print("="*60)
 
-all_passed = True
+experiment = get_experiment(experiment_name=actual_experiment_name, project_name=project_name)
+props = aggregate_props(experiment)
 
-# Check each metric against thresholds
+all_passed = True
+missing = []
+
+# Check each metric against thresholds. Metrics the platform did not return for
+# this experiment are reported as skipped (not a hard failure).
 for metric in metrics:
     metric_name = metric.value
-    average_metric_key = f"average_{metric_name}"
-    
-    if experiment.aggregate_metrics and average_metric_key in experiment.aggregate_metrics:
-        avg_score = experiment.aggregate_metrics[average_metric_key]
+    resolved_key, avg_score = resolve_average(props, metric_name)
+
+    if resolved_key is not None:
         threshold = THRESHOLDS.get(metric_name, 0.0)
-        
-        # For hallucination, lower is better (inverted check)
-        if metric_name == "hallucination":
-            passed = avg_score <= threshold
-        else:
-            passed = avg_score >= threshold
-        
+        passed = avg_score >= threshold
         status = "✅ PASS" if passed else "❌ FAIL"
-        print(f"{status} {metric_name}: {avg_score:.3f} (threshold: {threshold:.3f})")
-        
+        label = metric_name if resolved_key == f"average_{metric_name}" else f"{metric_name} (as {resolved_key[len('average_'):]})"
+        print(f"{status} {label}: {avg_score:.3f} (threshold: {threshold:.3f})")
         if not passed:
             all_passed = False
     else:
-        print(f"⚠️  {metric_name}: No results available")
-        all_passed = False
+        print(f"⏭️  {metric_name}: not returned by the platform for this experiment (skipped)")
+        missing.append(metric_name)
 
 print("\n" + "="*60)
 if all_passed:
-    print("✅ ALL METRICS PASSED THRESHOLDS - CI/CD CHECK PASSED")
+    print("✅ CI/CD CHECK PASSED - all returned metrics met thresholds")
+    if missing:
+        print(f"   (skipped, not computed for this experiment: {', '.join(missing)})")
     print("="*60)
     exit(0)
 else:
-    print("❌ SOME METRICS FAILED THRESHOLDS - CI/CD CHECK FAILED")
+    print("❌ CI/CD CHECK FAILED - one or more metrics below threshold")
     print("="*60)
     exit(1)

@@ -10,13 +10,17 @@
 This is self-contained: it enables the metrics, submits the data, and verifies
 the results without any manual log inspection.
 
-Note on how scores are keyed: Galileo stores LLM-judge metric values on each
-trace under the *scorer id* (e.g. "<scorer_id>_multijudge_average"), not the
-friendly metric name. So we look up each metric's scorer id first and use that
-to read its value. Retriever metrics such as chunk_attribution_utilization are
-keyed by name instead (e.g. "chunk_attribution_utilization_gpt_status").
+It can verify LLM-as-judge metrics, Luna (SLM) metrics, or both at once - see
+GALILEO_SMOKE_TEST_METRICS below.
+
+Note on how scores are keyed: Galileo stores each metric's value on the trace
+under the metric's *scorer id* (e.g. "<scorer_id>_multijudge_average" for
+LLM-judge, "<scorer_id>_average" for Luna), not the friendly metric name. Older
+versions key by name instead. The resolver probes both, id first, and guards
+against an LLM-judge metric accidentally reading its Luna sibling's value.
 
 Configuration (optional, via .env - see .env.template):
+    GALILEO_SMOKE_TEST_METRICS            Which family: llm|luna|both  (default llm)
     GALILEO_METRIC_TIMEOUT_SECONDS        Max wait for metrics       (default 180)
     GALILEO_METRIC_POLL_INTERVAL_SECONDS  Seconds between polls       (default 10)
     GALILEO_SMOKE_TEST_NUM_TRACES         Test traces to submit      (default 3)
@@ -69,38 +73,69 @@ NUM_TRACES = _env_int("GALILEO_SMOKE_TEST_NUM_TRACES", 3)
 MIN_SCORED_TRACES = _env_int("GALILEO_METRIC_MIN_SCORED_TRACES", NUM_TRACES)
 DEBUG = bool(os.getenv("GALILEO_SMOKE_TEST_DEBUG"))
 
-# Metrics this smoke test enables on the log stream and then verifies.
-METRICS = [
+# Metric families this smoke test can enable and verify. LLM-judge and Luna
+# (SLM) variants are separate scorers, so either family - or both together -
+# can be verified in one run. (correctness has no Luna variant; completeness
+# is its closest Luna counterpart.)
+LLM_JUDGE_METRICS = [
     GalileoMetrics.context_adherence,
     GalileoMetrics.context_relevance,
     GalileoMetrics.correctness,
 ]
-EXPECTED_METRICS = [m.value for m in METRICS]
+LUNA_METRICS = [
+    GalileoMetrics.context_adherence_luna,
+    GalileoMetrics.context_relevance_luna,
+    GalileoMetrics.completeness_luna,
+]
+_METRIC_SETS = {
+    "llm": LLM_JUDGE_METRICS,
+    "luna": LUNA_METRICS,
+    "both": LLM_JUDGE_METRICS + LUNA_METRICS,
+}
+
+# GALILEO_SMOKE_TEST_METRICS selects which family to run: "llm", "luna", "both".
+METRIC_SET = (os.getenv("GALILEO_SMOKE_TEST_METRICS") or "llm").lower()
+if METRIC_SET not in _METRIC_SETS:
+    print(f"⚠️  GALILEO_SMOKE_TEST_METRICS='{METRIC_SET}' unknown; using 'llm'.")
+    METRIC_SET = "llm"
+METRICS = _METRIC_SETS[METRIC_SET]
+# Use the enum member name (stable snake identifier that matches the on-trace
+# metric keys), not .value - on some SDK versions .value is a display label
+# like "Context Adherence (SLM)", which won't match the trace keys.
+EXPECTED_METRICS = [metric.name for metric in METRICS]
 
 MODEL_ALIAS = "gpt-5"
 
 # Statuses that indicate a metric finished computing (vs. pending / error).
 _OK_STATUSES = {"success", "roll_up", "computed", "done"}
-# Suffix for LLM-judge scalar values (used with both scorer-id and name keys).
-_JUDGE_VALUE_SUFFIX = "_multijudge_average"
+# A metric's scalar value is published under its key plus one of these suffixes
+# (the trace-level aggregate). Order = preference.
+_SCALAR_SUFFIXES = ("@average", "_multijudge_average", "_average")
+
+# Some metrics surface on the trace under a different internal scorer name than
+# their enum value. Map enum value -> the on-trace key(s) to also try. Extend
+# this if GALILEO_SMOKE_TEST_DEBUG=1 shows a metric keyed under another name.
+METRIC_KEY_ALIASES = {
+    "completeness_luna": ["rag_nli_completeness"],
+}
 
 
 # ---------------------------------------------------------------------------
 # Metric resolution
 # ---------------------------------------------------------------------------
 #
-# How metric values are keyed on a trace changed across Galileo versions, so we
-# probe several patterns instead of hard-coding one:
+# How metric values are keyed on a trace varies by Galileo version, family, and
+# metric, so for each metric we build a short list of candidate keys and read
+# them exactly:
 #
-#   - Newer versions key LLM-judge metrics by the metric's *scorer id*, e.g.
-#     "<scorer_id>_multijudge_average".
-#   - Older versions key them by the friendly *name*, e.g. "context_adherence"
-#     or "context_adherence_multijudge_average".
-#   - Some metrics expose a status rather than a single scalar.
+#   - By scorer id when available (newer, id-keyed deployments).
+#   - By the metric's name, plus any alias in METRIC_KEY_ALIASES.
 #
-# We look up scorer ids lazily and only if a name-based match fails, so older /
-# name-keyed deployments never pay the (slower) scorer-listing call. To see
-# exactly how your version keys metrics, run with GALILEO_SMOKE_TEST_DEBUG=1.
+# For each candidate we look for a scalar (key + a _SCALAR_SUFFIXES suffix, or
+# the bare key), then fall back to the "<key>_status" field for metrics that
+# report completion without a single scalar. Exact-key reads mean an LLM-judge
+# metric can't accidentally pick up its Luna sibling's value. Run with
+# GALILEO_SMOKE_TEST_DEBUG=1 to print the exact keys on a trace.
 
 _scorer_ids_cache: Optional[dict] = None
 
@@ -116,9 +151,9 @@ def scorer_ids() -> dict:
         try:
             wanted = set(EXPECTED_METRICS)
             _scorer_ids_cache = {
-                s.name: str(s.id)
-                for s in Scorers().list()
-                if getattr(s, "name", None) in wanted
+                scorer.name: str(scorer.id)
+                for scorer in Scorers().list()
+                if getattr(scorer, "name", None) in wanted
             }
         except Exception as exc:  # noqa: BLE001 - fall back to name-based lookup
             print(f"⚠️  Could not list scorer ids ({exc}); using name-based lookup.")
@@ -136,34 +171,35 @@ def _numeric(value):
     return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
+def candidate_keys(name: str) -> list:
+    """On-trace keys to try for a metric: its scorer id (if any), then its name
+    and any known aliases."""
+    keys = [name, *METRIC_KEY_ALIASES.get(name, [])]
+    scorer_id = scorer_ids().get(name)
+    if scorer_id:
+        keys.insert(0, scorer_id)
+    return keys
+
+
 def resolve_metric(scores: dict, name: str):
-    """Return (computed, value) for one metric on one trace, version-tolerant.
+    """Return (computed, value) for one metric on one trace.
 
-    ``value`` is a float when the metric produces a scalar score, or None when
-    it computed but exposes no single scalar (e.g. chunk attribution).
+    ``value`` is a float when the metric publishes a scalar score, or None when
+    it finished computing but exposes no single scalar (status only).
     """
-    # 1. Name-based scalar (older versions): "context_adherence" or
-    #    "context_adherence_multijudge_average".
-    for key in (name, f"{name}{_JUDGE_VALUE_SUFFIX}"):
-        v = _numeric(scores.get(key))
-        if v is not None:
-            return True, float(v)
+    for key in candidate_keys(name):
+        # Scalar value: "<key>@average" / "<key>_..._average" or the bare key.
+        for suffix in _SCALAR_SUFFIXES:
+            scalar = _numeric(scores.get(f"{key}{suffix}"))
+            if scalar is not None:
+                return True, float(scalar)
+        scalar = _numeric(scores.get(key))
+        if scalar is not None:
+            return True, float(scalar)
 
-    # 2. Scorer-id-based scalar (newer versions): "<scorer_id>_multijudge_average".
-    sid = scorer_ids().get(name)
-    if sid:
-        for key in (f"{sid}{_JUDGE_VALUE_SUFFIX}", sid):
-            v = _numeric(scores.get(key))
-            if v is not None:
-                return True, float(v)
-
-    # 3. Computed but no clean scalar: a success status under the name or id
-    #    prefix (e.g. "<metric>_gpt_status").
-    prefixes = tuple(p for p in (name, sid) if p)
-    for key, value in scores.items():
-        if key.startswith(prefixes) and key.endswith("_status"):
-            if str(value).lower() in _OK_STATUSES:
-                return True, None
+        # No scalar we recognize: trust the metric's completion status.
+        if str(scores.get(f"{key}_status", "")).lower() in _OK_STATUSES:
+            return True, None
 
     return False, None
 
@@ -191,6 +227,10 @@ def fmt(value) -> str:
     if value is None:
         return "computed"
     return f"{value:.3f}"
+
+
+def metric_family(name: str) -> str:
+    return "Luna (SLM)" if name.endswith("_luna") else "LLM-judge"
 
 
 # ---------------------------------------------------------------------------
@@ -251,25 +291,25 @@ def poll_for_scored_traces(project_id: str, log_stream_id: str, run_tag: str) ->
     dumped_debug = False
     while elapsed < TIMEOUT_SECONDS:
         response = get_traces(project_id=project_id, log_stream_id=log_stream_id, limit=100)
-        ours = [r for r in (getattr(response, "records", None) or [])
-                if run_tag in (getattr(r, "tags", None) or [])]
+        our_traces = [record for record in (getattr(response, "records", None) or [])
+                      if run_tag in (getattr(record, "tags", None) or [])]
 
         # On the first batch that has any metrics, optionally reveal the key
         # shape so version differences are easy to diagnose.
         if DEBUG and not dumped_debug:
-            for record in ours:
+            for record in our_traces:
                 if raw_metrics(record):
                     debug_dump_metric_keys(record)
                     dumped_debug = True
                     break
 
-        scored = [r for r in ours if is_fully_scored(r)]
+        scored = [record for record in our_traces if is_fully_scored(record)]
 
         if len(scored) >= MIN_SCORED_TRACES:
-            print(f"✅ {len(scored)}/{len(ours)} trace(s) fully scored after {elapsed}s.")
+            print(f"✅ {len(scored)}/{len(our_traces)} trace(s) fully scored after {elapsed}s.")
             return scored
 
-        print(f"   {len(ours)} found, {len(scored)} fully scored... "
+        print(f"   {len(our_traces)} found, {len(scored)} fully scored... "
               f"({elapsed}s/{TIMEOUT_SECONDS}s)")
         time.sleep(POLL_INTERVAL_SECONDS)
         elapsed += POLL_INTERVAL_SECONDS
@@ -295,7 +335,12 @@ def print_scores(records: list) -> None:
 
     print("\nAverages")
     print("-" * 48)
+    last_family = None
     for metric in EXPECTED_METRICS:
+        family = metric_family(metric)
+        if family != last_family:
+            print(f"[{family}]")
+            last_family = family
         values = totals.get(metric)
         if values:
             print(f"  {metric}: {sum(values) / len(values):.3f} (n={len(values)})")
@@ -326,6 +371,7 @@ def main() -> int:
     print(f"Log stream: {LOG_STREAM_NAME} ({log_stream.id})\n")
 
     # 1. Enable the metrics we are about to verify.
+    print(f"Metric family: {METRIC_SET}")
     print(f"Enabling metrics: {', '.join(EXPECTED_METRICS)}...")
     try:
         enable_metrics(
@@ -343,7 +389,7 @@ def main() -> int:
     submit_test_traces(run_tag)
 
     # 3 & 4. Poll and verify. Metric values are resolved version-tolerantly
-    # (by name, then by scorer id) inside the resolver.
+    # (by scorer id, then by name) inside the resolver.
     try:
         scored = poll_for_scored_traces(project.id, log_stream.id, run_tag)
     except KeyboardInterrupt:
